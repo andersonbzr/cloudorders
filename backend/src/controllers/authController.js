@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const AppError = require('../utils/AppError');
-const users = require('../data/users');
+const pool = require('../config/database');
 
 const register = async (req, res, next) => {
   try {
@@ -11,32 +11,27 @@ const register = async (req, res, next) => {
       throw new AppError('Nome, email e senha são obrigatórios.', 400);
     }
 
-    const userAlreadyExists = users.find((user) => user.email === email);
+    const existingUserResult = await pool.query(
+      'SELECT * FROM users WHERE email = $1',
+      [email]
+    );
 
-    if (userAlreadyExists) {
+    if (existingUserResult.rows.length > 0) {
       throw new AppError('Já existe um usuário com esse email.', 400);
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const newUser = {
-      id: users.length ? users[users.length - 1].id + 1 : 1,
-      name,
-      email,
-      password: hashedPassword,
-      role: role || 'user'
-    };
+    const result = await pool.query(
+      'INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING id, name, email, role',
+      [name, email, hashedPassword, role || 'user']
+    );
 
-    users.push(newUser);
+    const newUser = result.rows[0];
 
     res.status(201).json({
       message: 'Usuário cadastrado com sucesso.',
-      user: {
-        id: newUser.id,
-        name: newUser.name,
-        email: newUser.email,
-        role: newUser.role
-      }
+      user: newUser
     });
   } catch (error) {
     next(error);
@@ -51,7 +46,12 @@ const login = async (req, res, next) => {
       throw new AppError('Email e senha são obrigatórios.', 400);
     }
 
-    const user = users.find((item) => item.email === email);
+    const result = await pool.query(
+      'SELECT * FROM users WHERE email = $1',
+      [email]
+    );
+
+    const user = result.rows[0];
 
     if (!user) {
       throw new AppError('Credenciais inválidas.', 401);

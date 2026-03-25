@@ -1,27 +1,21 @@
 const AppError = require('../utils/AppError');
+const pool = require('../config/database');
 
-let products = [
-  {
-    id: 1,
-    name: 'Notebook',
-    price: 3500
-  },
-  {
-    id: 2,
-    name: 'Mouse',
-    price: 120
+const getAllProducts = async (req, res, next) => {
+  try {
+    const result = await pool.query('SELECT * FROM products ORDER BY id ASC');
+    res.status(200).json(result.rows);
+  } catch (error) {
+    next(error);
   }
-];
-
-const getAllProducts = (req, res) => {
-  res.status(200).json(products);
 };
 
-const getProductById = (req, res, next) => {
+const getProductById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const product = products.find((item) => item.id === Number(id));
+    const result = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
+    const product = result.rows[0];
 
     if (!product) {
       throw new AppError('Produto não encontrado.', 404);
@@ -33,7 +27,7 @@ const getProductById = (req, res, next) => {
   }
 };
 
-const createProduct = (req, res, next) => {
+const createProduct = async (req, res, next) => {
   try {
     const { name, price } = req.body;
 
@@ -41,66 +35,68 @@ const createProduct = (req, res, next) => {
       throw new AppError('Nome e preço são obrigatórios.', 400);
     }
 
-    const newProduct = {
-      id: products.length ? products[products.length - 1].id + 1 : 1,
-      name,
-      price
-    };
-
-    products.push(newProduct);
+    const result = await pool.query(
+      'INSERT INTO products (name, price) VALUES ($1, $2) RETURNING *',
+      [name, price]
+    );
 
     res.status(201).json({
       message: 'Produto criado com sucesso.',
-      product: newProduct
+      product: result.rows[0]
     });
   } catch (error) {
     next(error);
   }
 };
 
-const updateProduct = (req, res, next) => {
+const updateProduct = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { name, price } = req.body;
-
-    const productIndex = products.findIndex((item) => item.id === Number(id));
-
-    if (productIndex === -1) {
-      throw new AppError('Produto não encontrado.', 404);
-    }
 
     if (!name || price === undefined) {
       throw new AppError('Nome e preço são obrigatórios para atualização.', 400);
     }
 
-    products[productIndex] = {
-      ...products[productIndex],
-      name,
-      price
-    };
+    const existingProduct = await pool.query(
+      'SELECT * FROM products WHERE id = $1',
+      [id]
+    );
+
+    if (existingProduct.rows.length === 0) {
+      throw new AppError('Produto não encontrado.', 404);
+    }
+
+    const result = await pool.query(
+      'UPDATE products SET name = $1, price = $2 WHERE id = $3 RETURNING *',
+      [name, price, id]
+    );
 
     res.status(200).json({
       message: 'Produto atualizado com sucesso.',
-      product: products[productIndex]
+      product: result.rows[0]
     });
   } catch (error) {
     next(error);
   }
 };
 
-const deleteProduct = (req, res, next) => {
+const deleteProduct = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const productIndex = products.findIndex((item) => item.id === Number(id));
+    const existingProduct = await pool.query(
+      'SELECT * FROM products WHERE id = $1',
+      [id]
+    );
 
-    if (productIndex === -1) {
+    if (existingProduct.rows.length === 0) {
       throw new AppError('Produto não encontrado.', 404);
     }
 
-    const deletedProduct = products[productIndex];
+    const deletedProduct = existingProduct.rows[0];
 
-    products.splice(productIndex, 1);
+    await pool.query('DELETE FROM products WHERE id = $1', [id]);
 
     res.status(200).json({
       message: 'Produto removido com sucesso.',
